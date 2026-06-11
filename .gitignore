@@ -4,3 +4,7 @@ schedule.json
 history.json
 *.env
 .env
+credentials.json
+token.json
+.DS_Store
+.claude/
