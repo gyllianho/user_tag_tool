@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+schedule.json
+history.json
+*.env
+.env

@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Group Uploader</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f0f2f5; min-height: 100vh; padding: 32px 16px; }
+    .card { background: #fff; border-radius: 12px; box-shadow: 0 2px 16px rgba(0,0,0,.10); width: 100%; max-width: 760px; margin: 0 auto; overflow: hidden; }
+    .card-header { background: #ee4d2d; padding: 20px 28px; display: flex; align-items: center; gap: 12px; }
+    .card-header .logo { width:36px;height:36px;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px; }
+    .card-header h1 { color:#fff;font-size:18px;font-weight:600; }
+    .card-header p  { color:rgba(255,255,255,.75);font-size:12px;margin-top:2px; }
+
+    /* Tabs */
+    .tab-bar { display:flex;border-bottom:2px solid #f0f0f0;background:#fff;padding:0 28px; }
+    .tab-btn { padding:14px 20px;font-size:14px;font-weight:500;color:#888;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:.15s; }
+    .tab-btn.active { color:#ee4d2d;border-bottom-color:#ee4d2d;font-weight:600; }
+    .tab-pane { display:none; }
+    .tab-pane.active { display:block; }
+    .card-body { padding: 28px; }
+
+    label { display:block;font-size:13px;font-weight:500;color:#333;margin-bottom:6px; }
+    label span.req { color:#ee4d2d; }
+    .field { margin-bottom:18px; }
+    input[type="text"], input[type="url"], input[type="password"], input[type="time"], select, textarea {
+      width:100%;padding:10px 12px;border:1px solid #d9d9d9;border-radius:8px;
+      font-size:14px;color:#222;outline:none;transition:border-color .2s;background:#fff;
+    }
+    input:focus, select:focus, textarea:focus { border-color:#ee4d2d;box-shadow:0 0 0 2px rgba(238,77,45,.12); }
+    textarea { resize:vertical;min-height:72px;font-family:monospace;font-size:12px; }
+    .hint { font-size:11px;color:#999;margin-top:4px;line-height:1.5; }
+    .input-row { display:flex;gap:8px;align-items:flex-start; }
+    .input-row input { flex:1; }
+    .btn-fetch { padding:10px 14px;background:#ee4d2d;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap; }
+    .btn-fetch:disabled { opacity:.6;cursor:not-allowed; }
+
+    .sections-header { display:flex;align-items:center;justify-content:space-between;margin-bottom:12px; }
+    .sections-header h3 { font-size:14px;font-weight:600;color:#333; }
+    .section-card { border:1px solid #e8e8e8;border-radius:10px;padding:16px 16px 12px;margin-bottom:10px;position:relative;background:#fafafa; }
+    .section-num { position:absolute;top:-10px;left:14px;background:#ee4d2d;color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px; }
+    .section-remove { position:absolute;top:10px;right:12px;background:none;border:none;cursor:pointer;color:#bbb;font-size:16px;padding:2px; }
+    .section-remove:hover { color:#ee4d2d; }
+    .section-grid { display:grid;grid-template-columns:1fr 1fr;gap:12px; }
+    @media(max-width:480px){ .section-grid { grid-template-columns:1fr; } }
+    .btn-add { width:100%;padding:10px;border:1.5px dashed #d9d9d9;border-radius:8px;background:#fff;color:#888;font-size:13px;cursor:pointer;transition:.2s; }
+    .btn-add:hover { border-color:#ee4d2d;color:#ee4d2d; }
+    .divider { height:1px;background:#f0f0f0;margin:20px 0; }
+    .toggle-row { display:flex;align-items:center;gap:8px;margin-bottom:18px; }
+    .toggle-row label { margin:0;font-size:13px;color:#555; }
+    input[type="checkbox"] { width:16px;height:16px;accent-color:#ee4d2d;cursor:pointer; }
+    .btn-submit { width:100%;padding:12px;background:#ee4d2d;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;transition:.2s; }
+    .btn-submit:hover { background:#d73d1f; }
+    .btn-submit:disabled { opacity:.6;cursor:not-allowed; }
+    .log-box { margin-top:20px;background:#1a1a2e;border-radius:8px;padding:16px;display:none;max-height:300px;overflow-y:auto; }
+    .log-box.visible { display:block; }
+    .log-line { font-family:"SF Mono","Fira Code",monospace;font-size:12.5px;line-height:1.8;color:#a8b4c8; }
+    .log-line.success { color:#4ade80; }
+    .log-line.error   { color:#f87171; }
+    .log-line.info    { color:#60a5fa; }
+    .log-line.sep     { color:#374151;border-top:1px solid #2d3748;margin-top:4px;padding-top:4px; }
+    .result-box { margin-top:16px;border-radius:8px;overflow:hidden;display:none;border:1px solid #e8e8e8; }
+    .result-row { display:grid;grid-template-columns:80px 140px 60px 60px 60px 80px;align-items:center;padding:10px 14px;border-bottom:1px solid #f0f0f0;font-size:13px;gap:8px; }
+    .result-row:last-child { border-bottom:none; }
+    .result-row.hd { background:#f9f9f9;font-weight:600;color:#666;font-size:11px; }
+    .result-row.ok { background:#f0fdf4; }
+    .badge { font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;text-align:center; }
+    .badge.g { background:#dcfce7;color:#166534; }
+    .badge.r { background:#fee2e2;color:#991b1b; }
+    .spinner { display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px; }
+    @keyframes spin { to{ transform:rotate(360deg); } }
+    .tab-status { font-size:12px;margin-top:4px;display:none; }
+
+    /* Schedule */
+    .sched-section { background:#f8faff;border:1px solid #dde8ff;border-radius:10px;padding:18px; }
+    .sched-section h3 { font-size:14px;font-weight:600;color:#333;margin-bottom:14px; }
+    .time-list { display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px; }
+    .time-chip { display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #d9d9d9;border-radius:20px;padding:4px 6px 4px 12px;font-size:13px; }
+    .time-chip button { background:none;border:none;cursor:pointer;color:#aaa;font-size:14px;line-height:1; }
+    .time-chip button:hover { color:#ee4d2d; }
+    .add-time-row { display:flex;gap:8px;align-items:center; }
+    .add-time-row input[type="time"] { width:130px; }
+    .btn-add-time { padding:8px 14px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;white-space:nowrap; }
+
+    .calendar-wrap { margin-top:14px; }
+    .cal-nav { display:flex;align-items:center;justify-content:space-between;margin-bottom:8px; }
+    .cal-nav button { background:none;border:none;cursor:pointer;font-size:18px;color:#555;padding:2px 8px; }
+    .cal-nav span { font-size:13px;font-weight:600;color:#333; }
+    .cal-grid { display:grid;grid-template-columns:repeat(7,1fr);gap:3px; }
+    .cal-day-name { text-align:center;font-size:11px;color:#aaa;padding:4px 0; }
+    .cal-day { text-align:center;font-size:12px;padding:6px 0;border-radius:6px;cursor:pointer;border:1px solid transparent;transition:.15s;color:#333; }
+    .cal-day:hover { background:#fee2d5; }
+    .cal-day.selected { background:#ee4d2d;color:#fff;font-weight:600; }
+    .cal-day.today { border-color:#ee4d2d;color:#ee4d2d;font-weight:600; }
+    .cal-day.today.selected { color:#fff; }
+    .cal-day.empty,.cal-day.past { cursor:default;color:#ccc; }
+    .selected-dates { font-size:11px;color:#888;margin-top:8px;line-height:1.6; }
+    .btn-save-schedule { margin-top:14px;width:100%;padding:10px;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer; }
+    .btn-save-schedule:hover { background:#2563eb; }
+
+    /* History tab */
+    .history-filters { display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap; }
+    .filter-btn { padding:6px 14px;border:1px solid #d9d9d9;border-radius:20px;background:#fff;font-size:12px;cursor:pointer;color:#666; }
+    .filter-btn.active { background:#ee4d2d;color:#fff;border-color:#ee4d2d; }
+    .history-list { display:flex;flex-direction:column;gap:10px; }
+    .history-card { border:1px solid #e8e8e8;border-radius:10px;overflow:hidden; }
+    .history-head { display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#fafafa;cursor:pointer; }
+    .history-head:hover { background:#f3f3f3; }
+    .history-meta { display:flex;align-items:center;gap:10px;flex-wrap:wrap; }
+    .history-meta .ts { font-size:12px;color:#888; }
+    .history-meta .type-badge { font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600; }
+    .type-badge.manual { background:#e0f2fe;color:#0369a1; }
+    .type-badge.scheduled { background:#f3e8ff;color:#7c3aed; }
+    .status-dot { width:8px;height:8px;border-radius:50%;flex-shrink:0; }
+    .status-dot.success { background:#22c55e; }
+    .status-dot.error   { background:#ef4444; }
+    .status-dot.running { background:#f59e0b; }
+    .history-body { display:none;padding:12px 14px;border-top:1px solid #f0f0f0; }
+    .history-body.open { display:block; }
+    .history-results { margin-bottom:10px; }
+    .history-log { background:#1a1a2e;border-radius:6px;padding:10px;max-height:200px;overflow-y:auto;font-family:monospace;font-size:12px;color:#a8b4c8;line-height:1.7; }
+    .empty-state { text-align:center;padding:40px;color:#aaa;font-size:14px; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="card-header">
+    <div class="logo">🍜</div>
+    <div>
+      <h1>User Group Uploader</h1>
+      <p>Google Sheet → ShopeeFood User Tag</p>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('upload')">Upload</button>
+    <button class="tab-btn" onclick="switchTab('schedule')">Lịch tự động</button>
+    <button class="tab-btn" onclick="switchTab('history')">Lịch sử</button>
+  </div>
+
+  <!-- ── UPLOAD TAB ── -->
+  <div id="tab-upload" class="tab-pane active">
+  <div class="card-body">
+
+    <div class="field">
+      <label>Cookie Token <span class="req">*</span></label>
+      <textarea id="cookie_token" placeholder="Paste cookie string từ browser DevTools...&#10;vd: SPC_F=xxx; SPC_EC=yyy; ..."></textarea>
+      <p class="hint">Lấy cookie: Mở <strong>food-admin.shopee.vn</strong> → F12 → Network → click bất kỳ request → Headers → <strong>Cookie</strong> → Copy value</p>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="field">
+      <label>Google Sheet URL <span class="req">*</span></label>
+      <div class="input-row">
+        <input type="url" id="sheet_url" placeholder="https://docs.google.com/spreadsheets/d/...">
+        <button class="btn-fetch" id="btnFetch" onclick="fetchTabs()">Lấy tabs</button>
+      </div>
+      <p class="hint">Sheet cần share → <strong>Anyone with the link</strong> → Viewer</p>
+      <p class="tab-status" id="tabStatus"></p>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sections-header">
+      <h3>Sections upload</h3>
+      <span style="font-size:12px;color:#aaa;">1 tab → 1 User Group</span>
+    </div>
+    <div id="sectionList"></div>
+    <button class="btn-add" onclick="addSection()">+ Thêm section</button>
+
+    <div class="divider"></div>
+
+    <div class="toggle-row" style="margin-bottom:14px;">
+      <input type="checkbox" id="clearBefore" checked>
+      <label for="clearBefore" style="font-size:13px;color:#555;">Xóa danh sách cũ trước khi upload</label>
+    </div>
+
+    <button class="btn-submit" id="btnSubmit" onclick="doUpload()">🚀 Bắt đầu Upload</button>
+    <div class="log-box" id="logBox"></div>
+    <div class="result-box" id="resultBox"></div>
+
+  </div>
+  </div>
+
+  <!-- ── SCHEDULE TAB ── -->
+  <div id="tab-schedule" class="tab-pane">
+  <div class="card-body">
+
+    <div class="toggle-row" style="margin-bottom:20px;">
+      <input type="checkbox" id="schedEnabled">
+      <label for="schedEnabled" style="font-size:14px;font-weight:600;">Bật chạy tự động</label>
+    </div>
+
+    <div class="sched-section">
+      <h3>Giờ chạy trong ngày</h3>
+      <div class="time-list" id="timeList"></div>
+      <div class="add-time-row">
+        <input type="time" id="newTimeInput" value="08:00">
+        <button class="btn-add-time" onclick="addTime()">+ Thêm giờ</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="sched-section">
+      <h3>Chọn ngày chạy</h3>
+      <div class="calendar-wrap">
+        <div class="cal-nav">
+          <button onclick="calPrev()">‹</button>
+          <span id="calTitle"></span>
+          <button onclick="calNext()">›</button>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+      </div>
+      <div class="selected-dates" id="selectedDatesLabel"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <p class="hint" style="margin-bottom:12px;">Lịch sẽ dùng Sheet URL, Cookie Token và Sections đang nhập ở tab Upload.</p>
+    <button class="btn-save-schedule" onclick="saveSchedule()">💾 Lưu lịch tự động</button>
+
+  </div>
+  </div>
+
+  <!-- ── HISTORY TAB ── -->
+  <div id="tab-history" class="tab-pane">
+  <div class="card-body">
+
+    <div class="history-filters">
+      <button class="filter-btn active" data-filter="all" onclick="setFilter('all',this)">Tất cả</button>
+      <button class="filter-btn" data-filter="manual" onclick="setFilter('manual',this)">Thủ công</button>
+      <button class="filter-btn" data-filter="scheduled" onclick="setFilter('scheduled',this)">Tự động</button>
+      <button class="filter-btn" data-filter="success" onclick="setFilter('success',this)">✓ Thành công</button>
+      <button class="filter-btn" data-filter="error" onclick="setFilter('error',this)">✗ Lỗi</button>
+      <button class="btn-fetch" style="margin-left:auto;" onclick="loadHistory()">↻ Refresh</button>
+    </div>
+
+    <div class="history-list" id="historyList">
+      <div class="empty-state">Chưa có lịch sử upload</div>
+    </div>
+
+  </div>
+  </div>
+
+</div>
+
+<script>
+  let availableTabs = [];
+  let sectionCount  = 0;
+
+  // ── Tab navigation ──────────────────────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach((b,i) => {
+      const tabs = ['upload','schedule','history'];
+      b.classList.toggle('active', tabs[i] === name);
+    });
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    if (name === 'history') loadHistory();
+    if (name === 'schedule') loadSchedule();
+  }
+
+  // ── Tabs fetch ──────────────────────────────────────────────────────────────
+  document.getElementById('sheet_url').addEventListener('paste', () => setTimeout(fetchTabs, 150));
+
+  async function fetchTabs() {
+    const url = document.getElementById('sheet_url').value.trim();
+    if (!url) return;
+    const status = document.getElementById('tabStatus');
+    const btn    = document.getElementById('btnFetch');
+    status.style.display = 'block'; status.style.color = '#aaa';
+    status.textContent = '⏳ Đang lấy tabs...'; btn.disabled = true;
+    try {
+      const res  = await fetch('/tabs?url=' + encodeURIComponent(url));
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      availableTabs = data.tabs;
+      status.style.color = '#4ade80';
+      status.textContent = `✓ ${availableTabs.length} tabs: ${availableTabs.join(', ')}`;
+      document.querySelectorAll('.tab-select').forEach(updateTabSelect);
+      if (sectionCount === 0) addSection();
+    } catch(e) {
+      status.style.color = '#f87171'; status.textContent = '❌ ' + e.message;
+    }
+    btn.disabled = false;
+  }
+
+  function updateTabSelect(sel) {
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">-- Chọn tab --</option>';
+    availableTabs.forEach(t => {
+      const o = document.createElement('option');
+      o.value = t; o.textContent = t;
+      if (t === cur) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+
+  function todayDDMM() {
+    const d = new Date();
+    return String(d.getDate()).padStart(2,'0') + String(d.getMonth()+1).padStart(2,'0');
+  }
+
+  function addSection() {
+    sectionCount++;
+    const n = sectionCount;
+    const div = document.createElement('div');
+    div.className = 'section-card'; div.id = `sec-${n}`;
+    div.innerHTML = `
+      <span class="section-num">#${n}</span>
+      <button class="section-remove" onclick="document.getElementById('sec-${n}').remove()" title="Xoá">✕</button>
+      <div class="section-grid">
+        <div class="field" style="margin:0">
+          <label>Tên tab <span class="req">*</span></label>
+          <select class="tab-select" id="tab_${n}"><option value="">-- Chọn tab --</option></select>
+        </div>
+        <div class="field" style="margin:0">
+          <label>User Group Name <span class="req">*</span></label>
+          <input type="text" id="gid_${n}" placeholder="vd: Mai_Test_Hihub">
+        </div>
+      </div>`;
+    document.getElementById('sectionList').appendChild(div);
+    const sel = document.getElementById(`tab_${n}`);
+    if (availableTabs.length) {
+      updateTabSelect(sel);
+      const today = availableTabs.find(t => t.replace(/\D/g,'').startsWith(todayDDMM()));
+      if (today) sel.value = today;
+    }
+  }
+
+  // ── Upload ──────────────────────────────────────────────────────────────────
+  async function doUpload() {
+    const sheet_url    = document.getElementById('sheet_url').value.trim();
+    const cookie_token = document.getElementById('cookie_token').value.trim();
+    if (!sheet_url)    { alert('Nhập Google Sheet URL'); return; }
+    if (!cookie_token) { alert('Nhập Cookie Token'); return; }
+    const sections = collectSections();
+    if (!sections.length) { alert('Điền ít nhất 1 section (tab + group name)'); return; }
+
+    const logBox = document.getElementById('logBox');
+    const resultBox = document.getElementById('resultBox');
+    logBox.innerHTML = ''; logBox.classList.add('visible');
+    resultBox.style.display = 'none'; resultBox.innerHTML = '';
+    const btn = document.getElementById('btnSubmit');
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Đang xử lý...';
+
+    try {
+      const res = await fetch('/upload', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ sheet_url, cookie_token, sections, clear_before_upload: document.getElementById('clearBefore').checked }),
+      });
+      const reader = res.body.getReader(); const decoder = new TextDecoder(); let buf = '';
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n\n'); buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const d = JSON.parse(line.slice(6));
+          if (d.type === 'log') {
+            const cls = d.msg.includes('✓') ? 'success' : d.msg.includes('❌')||d.msg.includes('ERROR')||d.msg.includes('SKIP') ? 'error' : d.msg.startsWith('──') ? 'sep' : d.msg.startsWith('[') ? 'info' : '';
+            addLog(d.msg, cls);
+          } else if (d.type === 'done') {
+            showResults(d.results);
+          } else if (d.type === 'error') {
+            addLog('❌ ' + d.msg, 'error');
+            resultBox.style.display = 'block'; resultBox.style.border = 'none';
+            resultBox.innerHTML = `<div style="padding:14px;background:#fff1f2;border:1px solid #fca5a5;border-radius:8px;color:#991b1b;font-size:13px;">❌ ${d.msg}</div>`;
+          }
+        }
+      }
+    } catch(e) { addLog('❌ ' + e.message, 'error'); }
+    btn.disabled = false; btn.innerHTML = '🚀 Bắt đầu Upload';
+  }
+
+  function collectSections() {
+    const sections = [];
+    document.querySelectorAll('.section-card').forEach(card => {
+      const n = card.id.replace('sec-','');
+      const tab = document.getElementById(`tab_${n}`)?.value.trim();
+      const gid = document.getElementById(`gid_${n}`)?.value.trim();
+      if (tab && gid) sections.push({ tab_name: tab, group_name: gid });
+    });
+    return sections;
+  }
+
+  function addLog(msg, cls='') {
+    const logBox = document.getElementById('logBox');
+    const line = document.createElement('div');
+    line.className = 'log-line' + (cls ? ' '+cls : '');
+    line.textContent = msg;
+    logBox.appendChild(line); logBox.scrollTop = logBox.scrollHeight;
+  }
+
+  function showResults(results) {
+    const box = document.getElementById('resultBox');
+    box.style.display = 'block';
+    box.innerHTML = `
+      <div class="result-row hd"><span>Tab</span><span>Group Name</span><span>TNV</span><span>User</span><span>Tổng</span><span>Trạng thái</span></div>
+      ${results.map(r => `
+        <div class="result-row ok">
+          <span>${r.tab}</span><span style="color:#888">${r.group_name}</span>
+          <span>${r.tnv}</span><span>${r.user}</span><strong>${r.total}</strong>
+          <span class="badge g">✓ Xong</span>
+        </div>`).join('')}`;
+  }
+
+  // ── Schedule ────────────────────────────────────────────────────────────────
+  let runTimes = ['08:00'];
+
+  function renderTimelist() {
+    const el = document.getElementById('timeList');
+    el.innerHTML = runTimes.map((t,i) => `
+      <div class="time-chip">
+        <span>${t}</span>
+        <button onclick="removeTime(${i})">✕</button>
+      </div>`).join('');
+  }
+
+  function addTime() {
+    const t = document.getElementById('newTimeInput').value;
+    if (!t || runTimes.includes(t)) return;
+    runTimes.push(t); runTimes.sort(); renderTimelist();
+  }
+
+  function removeTime(i) {
+    runTimes.splice(i, 1); renderTimelist();
+  }
+
+  // Calendar
+  let calYear, calMonth, selectedDates = new Set();
+
+  function calInit() { const now = new Date(); calYear = now.getFullYear(); calMonth = now.getMonth(); renderCal(); }
+  function calPrev() { calMonth--; if (calMonth < 0) { calMonth=11; calYear--; } renderCal(); }
+  function calNext() { calMonth++; if (calMonth > 11) { calMonth=0; calYear++; } renderCal(); }
+
+  function renderCal() {
+    const months = ['Tháng 1','Tháng 2','Tháng 3','Tháng 4','Tháng 5','Tháng 6','Tháng 7','Tháng 8','Tháng 9','Tháng 10','Tháng 11','Tháng 12'];
+    document.getElementById('calTitle').textContent = `${months[calMonth]} ${calYear}`;
+    const grid = document.getElementById('calGrid'); grid.innerHTML = '';
+    ['CN','T2','T3','T4','T5','T6','T7'].forEach(d => {
+      const el = document.createElement('div'); el.className='cal-day-name'; el.textContent=d; grid.appendChild(el);
+    });
+    const first = new Date(calYear, calMonth, 1).getDay();
+    const days  = new Date(calYear, calMonth+1, 0).getDate();
+    const today = new Date(); today.setHours(0,0,0,0);
+    for (let i=0; i<first; i++) { const e=document.createElement('div'); e.className='cal-day empty'; grid.appendChild(e); }
+    for (let d=1; d<=days; d++) {
+      const dt = new Date(calYear, calMonth, d);
+      const key = fmtDate(dt);
+      const el = document.createElement('div');
+      el.className = 'cal-day' + (selectedDates.has(key)?' selected':'') + (dt.getTime()===today.getTime()?' today':'') + (dt<today?' past':'');
+      el.textContent = d;
+      if (dt >= today) el.onclick = () => toggleDate(key, el);
+      grid.appendChild(el);
+    }
+    updateDateLabel();
+  }
+
+  function fmtDate(d) {
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  }
+
+  function toggleDate(key, el) {
+    if (selectedDates.has(key)) { selectedDates.delete(key); el.classList.remove('selected'); }
+    else { selectedDates.add(key); el.classList.add('selected'); }
+    updateDateLabel();
+  }
+
+  function updateDateLabel() {
+    const sorted = [...selectedDates].sort();
+    document.getElementById('selectedDatesLabel').textContent = sorted.length ? `Ngày đã chọn (${sorted.length}): ${sorted.join(', ')}` : 'Chưa chọn ngày nào';
+  }
+
+  async function saveSchedule() {
+    const payload = {
+      enabled:      document.getElementById('schedEnabled').checked,
+      run_times:    runTimes,
+      dates:        [...selectedDates].sort(),
+      sheet_url:            document.getElementById('sheet_url').value.trim(),
+      cookie_token:         document.getElementById('cookie_token').value.trim(),
+      sections:             collectSections(),
+      clear_before_upload:  document.getElementById('clearBefore').checked,
+    };
+    const res  = await fetch('/schedule', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (data.ok) {
+      const btn = document.querySelector('.btn-save-schedule');
+      btn.textContent='✓ Đã lưu!'; btn.style.background='#16a34a';
+      setTimeout(() => { btn.textContent='💾 Lưu lịch tự động'; btn.style.background=''; }, 2000);
+    }
+  }
+
+  async function loadSchedule() {
+    try {
+      const cfg = await fetch('/schedule').then(r=>r.json());
+      if (cfg.run_times)  { runTimes = cfg.run_times; renderTimelist(); }
+      if (cfg.enabled)    document.getElementById('schedEnabled').checked = true;
+      if (cfg.dates)      { selectedDates = new Set(cfg.dates); renderCal(); }
+      if (cfg.sheet_url && !document.getElementById('sheet_url').value)
+        document.getElementById('sheet_url').value = cfg.sheet_url;
+      if (cfg.cookie_token && !document.getElementById('cookie_token').value)
+        document.getElementById('cookie_token').value = cfg.cookie_token;
+    } catch(e) {}
+  }
+
+  // ── History ─────────────────────────────────────────────────────────────────
+  let currentFilter = 'all';
+  let historyData   = [];
+
+  function setFilter(f, btn) {
+    currentFilter = f;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderHistory();
+  }
+
+  async function loadHistory() {
+    historyData = await fetch('/history').then(r=>r.json());
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const list = document.getElementById('historyList');
+    let data = historyData;
+    if (currentFilter !== 'all') {
+      data = data.filter(r => r.type === currentFilter || r.status === currentFilter);
+    }
+    if (!data.length) { list.innerHTML = '<div class="empty-state">Không có bản ghi nào</div>'; return; }
+    list.innerHTML = data.map((r,i) => `
+      <div class="history-card">
+        <div class="history-head" onclick="toggleHistory(${i})">
+          <div class="history-meta">
+            <div class="status-dot ${r.status}"></div>
+            <span class="type-badge ${r.type}">${r.type === 'manual' ? 'Thủ công' : 'Tự động'}</span>
+            <span class="ts">${fmtTs(r.started)}</span>
+            <span style="font-size:12px;color:#555;">${r.sections?.map(s=>s.tab_name||'').join(', ')||''}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            ${r.status === 'success' ? `<span class="badge g">✓ ${r.results?.reduce((s,x)=>s+(x.total||0),0)||0} SĐT</span>` : `<span class="badge r">✗ Lỗi</span>`}
+            <span style="color:#aaa;font-size:12px;">▾</span>
+          </div>
+        </div>
+        <div class="history-body" id="hbody-${i}">
+          ${r.results?.length ? `
+            <div class="history-results">
+              <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                <tr style="background:#f9f9f9;color:#888;"><th style="padding:6px 8px;text-align:left;">Tab</th><th>Group</th><th>TNV</th><th>User</th><th>Tổng</th></tr>
+                ${r.results.map(x => `<tr style="border-top:1px solid #f0f0f0;"><td style="padding:6px 8px;">${x.tab}</td><td style="color:#888;">${x.group_name||''}</td><td style="text-align:center;">${x.tnv}</td><td style="text-align:center;">${x.user}</td><td style="text-align:center;font-weight:600;">${x.total}</td></tr>`).join('')}
+              </table>
+            </div>` : r.error ? `<p style="color:#ef4444;font-size:12px;margin-bottom:8px;">❌ ${r.error}</p>` : ''}
+          <div class="history-log">${(r.log||[]).join('\n')}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  function toggleHistory(i) {
+    const el = document.getElementById(`hbody-${i}`);
+    el.classList.toggle('open');
+  }
+
+  function fmtTs(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }
+
+  // ── localStorage persist ─────────────────────────────────────────────────────
+  const LS_KEY = 'ug_uploader_v1';
+
+  function saveState() {
+    const secs = [];
+    document.querySelectorAll('.section-card').forEach(card => {
+      const n = card.id.replace('sec-','');
+      secs.push({ tab: document.getElementById(`tab_${n}`)?.value||'', gid: document.getElementById(`gid_${n}`)?.value||'' });
+    });
+    const state = {
+      cookie_token: document.getElementById('cookie_token').value,
+      sheet_url:    document.getElementById('sheet_url').value,
+      clear_before: document.getElementById('clearBefore').checked,
+      sections:     secs,
+    };
+    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch(e) {}
+  }
+
+  function restoreState() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s.cookie_token) document.getElementById('cookie_token').value = s.cookie_token;
+      if (s.sheet_url)    document.getElementById('sheet_url').value = s.sheet_url;
+      if (s.clear_before !== undefined) document.getElementById('clearBefore').checked = s.clear_before;
+      // Restore sections after tabs are fetched
+      if (s.sheet_url && s.sections?.length) {
+        fetch('/tabs?url=' + encodeURIComponent(s.sheet_url)).then(r=>r.json()).then(data => {
+          if (data.tabs) {
+            availableTabs = data.tabs;
+            const status = document.getElementById('tabStatus');
+            status.style.display='block'; status.style.color='#4ade80';
+            status.textContent = `✓ ${availableTabs.length} tabs: ${availableTabs.join(', ')}`;
+          }
+          s.sections.forEach(sec => {
+            addSection();
+            const n = sectionCount;
+            const sel = document.getElementById(`tab_${n}`);
+            const gid = document.getElementById(`gid_${n}`);
+            if (availableTabs.length) updateTabSelect(sel);
+            if (sec.tab && sel) sel.value = sec.tab;
+            if (sec.gid && gid) gid.value = sec.gid;
+          });
+        }).catch(()=>{});
+      }
+    } catch(e) {}
+  }
+
+  // Auto-save on any input change
+  document.addEventListener('input', saveState);
+  document.addEventListener('change', saveState);
+
+  // ── Init ────────────────────────────────────────────────────────────────────
+  calInit();
+  renderTimelist();
+  restoreState();
+</script>
+</body>
+</html>
