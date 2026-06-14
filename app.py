@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from flask import Flask, render_template, request, Response, stream_with_context, jsonify
 from apscheduler.schedulers.background import BackgroundScheduler
-from core import run, get_sheet_tabs, parse_sheet_id
+from core import run, get_sheet_tabs, parse_sheet_id, extract_phones, phones_to_csv_bytes
 
 app = Flask(__name__)
 
@@ -184,6 +184,25 @@ def post_schedule():
     save_schedule(cfg)
     rebuild_scheduler(cfg["run_times"])
     return jsonify({"ok": True})
+
+
+@app.route("/download_csv", methods=["POST"])
+def download_csv():
+    data      = request.get_json()
+    sheet_url = data.get("sheet_url", "").strip()
+    tab_name  = data.get("tab_name", "").strip()
+    if not sheet_url or not tab_name:
+        return jsonify({"error": "Thiếu sheet_url hoặc tab_name"}), 400
+    try:
+        sheet_id = parse_sheet_id(sheet_url)
+        tnv, user = extract_phones(sheet_id, tab_name, log=lambda m: None)
+        phones = tnv + user
+        csv_bytes = phones_to_csv_bytes(phones)
+        filename = f"{tab_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        return Response(csv_bytes, mimetype="text/csv",
+                        headers={"Content-Disposition": f"attachment; filename={filename}"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 
 @app.route("/history")

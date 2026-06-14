@@ -321,6 +321,9 @@
           <label>User Group Name <span class="req">*</span></label>
           <input type="text" id="gid_${n}" placeholder="vd: Mai_Test_Hihub">
         </div>
+      </div>
+      <div style="margin-top:10px;text-align:right">
+        <button onclick="downloadCSV(${n})" style="padding:5px 12px;font-size:12px;background:#fff;border:1px solid #d9d9d9;border-radius:6px;cursor:pointer;color:#555;">⬇ Download CSV</button>
       </div>`;
     document.getElementById('sectionList').appendChild(div);
     const sel = document.getElementById(`tab_${n}`);
@@ -328,6 +331,31 @@
       updateTabSelect(sel);
       const today = availableTabs.find(t => t.replace(/\D/g,'').startsWith(todayDDMM()));
       if (today) sel.value = today;
+    }
+  }
+
+  // ── Download CSV ─────────────────────────────────────────────────────────────
+  async function downloadCSV(n) {
+    const sheet_url = document.getElementById('sheet_url').value.trim();
+    const tab_name  = document.getElementById(`tab_${n}`)?.value?.trim();
+    if (!sheet_url) { alert('Nhập Google Sheet URL trước'); return; }
+    if (!tab_name)  { alert('Chọn tab trước'); return; }
+    const btn = event.target;
+    btn.disabled = true; btn.textContent = '⏳ Đang tải...';
+    try {
+      const res = await fetch('/download_csv', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ sheet_url, tab_name }),
+      });
+      if (!res.ok) { const e = await res.json(); alert('Lỗi: ' + e.error); return; }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url;
+      a.download = res.headers.get('Content-Disposition')?.match(/filename=(.+)/)?.[1] || `${tab_name}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+    } finally {
+      btn.disabled = false; btn.textContent = '⬇ Download CSV';
     }
   }
 

@@ -169,10 +169,29 @@ def clear_group(group_detail: dict, session: requests.Session, label: str, log=p
     log(f"[{label}] Đã xóa danh sách cũ ✓")
 
 
+def phones_to_84(phones: list[str]) -> list[str]:
+    result = []
+    for p in phones:
+        p = re.sub(r"\D", "", p)
+        if not p:
+            continue
+        if p.startswith("0"):
+            p = "84" + p[1:]
+        elif not p.startswith("84"):
+            p = "84" + p
+        result.append(p)
+    return result
+
+
+def phones_to_csv_bytes(phones: list[str]) -> bytes:
+    lines = ["User ID"] + phones_to_84(phones)
+    return "\n".join(lines).encode("utf-8")
+
+
 def upload_to_group(group_detail: dict, phones: list[str], session: requests.Session,
                     label: str, log=print):
     """Upload danh sách số điện thoại lên group (operation_type=1)."""
-    user_list = [int(re.sub(r"\D", "", p)) for p in phones if re.sub(r"\D", "", p)]
+    user_list = [int(p) for p in phones_to_84(phones)]
     file_name = f"upl_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.csv"
 
     log(f"[{label}] Upload {len(user_list)} số → group_id={group_detail['group_id']}...")
