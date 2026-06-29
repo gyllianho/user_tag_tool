@@ -6,10 +6,14 @@ Mở:  http://localhost:5001
 """
 
 import re, uuid, time, json, queue, threading, os, webbrowser
+from pathlib import Path
 import requests, pandas as pd
 from datetime import datetime
 from io import StringIO
 from flask import Flask, Response, request, stream_with_context, jsonify
+from apscheduler.schedulers.background import BackgroundScheduler
+
+SCHEDULE_FILE = Path(__file__).parent / "schedule_local.json"
 
 # ── Core logic ─────────────────────────────────────────────────────────────────
 
@@ -144,6 +148,31 @@ def run_upload(sheet_url, cookie_token, sections, clear_before=True, log=print):
     log("\n✅ Hoàn tất!")
     return results
 
+# ── Scheduler ─────────────────────────────────────────────────────────────────
+
+def load_sched():
+    if SCHEDULE_FILE.exists():
+        try: return json.loads(SCHEDULE_FILE.read_text())
+        except: pass
+    return {"enabled": False, "sheet_url": "", "cookie_token": "", "sections": [], "clear_before": True}
+
+def save_sched(d):
+    SCHEDULE_FILE.write_text(json.dumps(d, ensure_ascii=False, indent=2))
+
+def scheduled_job():
+    cfg = load_sched()
+    if not cfg.get("enabled"): return
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] ⏰ Chạy scheduled upload...")
+    try:
+        run_upload(cfg["sheet_url"], cfg["cookie_token"], cfg["sections"],
+                   clear_before=cfg.get("clear_before", True), log=print)
+    except Exception as e:
+        print(f"❌ Scheduled upload lỗi: {e}")
+
+scheduler = BackgroundScheduler(timezone="Asia/Ho_Chi_Minh")
+scheduler.add_job(scheduled_job, "cron", hour=9, minute=0, id="daily_9am")
+scheduler.start()
+
 # ── Flask app ──────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
@@ -218,6 +247,19 @@ textarea{resize:vertical;min-height:72px;font-family:monospace;font-size:12px}
     <button class="btn btn-primary" id="btnGo" onclick="doUpload()">🚀 Bắt đầu Upload</button>
     <div id="logBox"></div>
     <div id="resBox"></div>
+
+    <div class="divider"></div>
+    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <div style="font-size:13px;font-weight:600;color:#92400e">⏰ Tự động chạy lúc 9:00 sáng hàng ngày</div>
+        <label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer">
+          <input type="checkbox" id="schedEnabled" onchange="saveSchedule()">
+          <span style="font-size:13px;color:#555">Bật</span>
+        </label>
+      </div>
+      <div style="font-size:12px;color:#78716c">Khi bật, tool phải đang chạy lúc 9h. Dùng cookie + sheet URL + sections đang điền ở trên.</div>
+      <div id="schedStatus" style="margin-top:8px;font-size:12px;color:#059669"></div>
+    </div>
   </div>
 </div>
 <script>
@@ -368,7 +410,33 @@ document.getElementById('cookie').addEventListener('input',save);
 document.getElementById('sheet_url').addEventListener('input',save);
 document.getElementById('clearBefore').addEventListener('change',save);
 
-restore().then(()=>{ if(!document.querySelectorAll('.sec').length) addSec(); });
+async function saveSchedule(){
+  const enabled=document.getElementById('schedEnabled').checked;
+  const cookie=document.getElementById('cookie').value.trim();
+  const sheet_url=document.getElementById('sheet_url').value.trim();
+  const sections=collectSecs();
+  const clear_before=document.getElementById('clearBefore').checked;
+  const r=await fetch('/schedule',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({enabled,cookie_token:cookie,sheet_url,sections,clear_before})});
+  const d=await r.json();
+  const st=document.getElementById('schedStatus');
+  st.textContent=enabled?'✅ Đã bật — sẽ chạy lúc 9:00 sáng hàng ngày':'⏸ Đã tắt';
+}
+
+async function loadSchedule(){
+  try{
+    const r=await fetch('/schedule');
+    const d=await r.json();
+    document.getElementById('schedEnabled').checked=!!d.enabled;
+    const st=document.getElementById('schedStatus');
+    st.textContent=d.enabled?'✅ Đang bật — chạy lúc 9:00 sáng hàng ngày':'';
+  }catch(e){}
+}
+
+restore().then(()=>{
+  if(!document.querySelectorAll('.sec').length) addSec();
+  loadSchedule();
+});
 </script>
 </body>
 </html>"""
@@ -437,6 +505,24 @@ def download_csv():
                         headers={"Content-Disposition": f"attachment; filename={fname}"})
     except Exception as e:
         return jsonify({"error": str(e)}), 400
+
+@app.route("/schedule", methods=["GET"])
+def get_schedule():
+    return jsonify(load_sched())
+
+@app.route("/schedule", methods=["POST"])
+def post_schedule():
+    data = request.get_json()
+    cfg = load_sched()
+    cfg.update({
+        "enabled":      data.get("enabled", False),
+        "sheet_url":    data.get("sheet_url", cfg["sheet_url"]),
+        "cookie_token": data.get("cookie_token", cfg["cookie_token"]),
+        "sections":     data.get("sections", cfg["sections"]),
+        "clear_before": data.get("clear_before", cfg.get("clear_before", True)),
+    })
+    save_sched(cfg)
+    return jsonify({"ok": True})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
