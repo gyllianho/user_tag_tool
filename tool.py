@@ -354,7 +354,8 @@ textarea{resize:vertical;min-height:64px;font-family:monospace;font-size:11px}
     </details>
     <div class="field">
       <label>Cookie Token <span class="req">*</span></label>
-      <textarea id="cookie" placeholder="Paste cookie từ DevTools (F12 → Network → Request Headers → Cookie)" rows="3"></textarea>
+      <textarea id="cookie" placeholder="Paste cookie từ DevTools (F12 → Network → Request Headers → Cookie)" rows="3" oninput="checkCookieExpiry()"></textarea>
+      <div id="cookieExpiry" style="margin-top:5px;font-size:12px"></div>
     </div>
     <div class="divider"></div>
 
@@ -431,6 +432,7 @@ async function restore(){
   const raw=localStorage.getItem(LS);if(!raw)return;
   const d=JSON.parse(raw);
   document.getElementById('cookie').value=d.cookie||'';
+  checkCookieExpiry();
   for(const s of (d.secs||[])){
     await addSec(s.sheet_url,s.tab_name,s.group_name,s.clear_before!==false,!!s.scheduled);
   }
@@ -671,6 +673,28 @@ async function loadHistory(){
 
 // ── Init ───────────────────────────────────────────────────────────────────
 document.getElementById('cookie').addEventListener('input',save);
+
+function checkCookieExpiry(){
+  const el=document.getElementById('cookieExpiry');
+  const cookie=document.getElementById('cookie').value;
+  const m=cookie.match(/csrfToken=([^\s;]+)/);
+  if(!m){el.textContent='';return;}
+  try{
+    const payload=JSON.parse(atob(m[1].split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
+    if(!payload.exp){el.textContent='';return;}
+    const exp=new Date(payload.exp*1000);
+    const now=new Date();
+    const diff=exp-now;
+    if(diff<=0){
+      el.innerHTML='<span style="color:#dc2626;font-weight:600">❌ Cookie đã hết hạn — lấy cookie mới từ DevTools</span>';
+    } else {
+      const h=Math.floor(diff/3600000);
+      const m2=Math.floor((diff%3600000)/60000);
+      const color=h<2?'#d97706':h<8?'#ca8a04':'#16a34a';
+      el.innerHTML=`<span style="color:${color}">🔑 Cookie còn hạn: <b>${h}h${m2}m</b> (hết lúc ${exp.toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'})} ngày ${exp.toLocaleDateString('vi-VN')})</span>`;
+    }
+  }catch(e){el.textContent='';}
+}
 
 restore().then(()=>{
   if(!document.querySelectorAll('.sec').length) addSec();
