@@ -95,7 +95,7 @@ def validate_session(session):
     """Kiểm tra cookie còn hợp lệ không trước khi chạy."""
     res = session.post(f"{BASE_URL}/tag-sys/api/v1/group/get_group_detail",
         json={"region":"VN","group_name":"__ping__","business_type":1}, timeout=10)
-    if res.status_code == 403:
+    if res.status_code in (401, 403):
         raise RuntimeError("Cookie đã hết hạn hoặc không có quyền. Vui lòng lấy cookie mới từ DevTools.")
     # code != 0 là bình thường (group không tồn tại), miễn không 403
 
@@ -108,7 +108,9 @@ def get_group_detail(group_name, session, log=print):
     res.raise_for_status()
     data = res.json()
     if data.get("code") != 0: raise RuntimeError(f"Group '{group_name}' không tồn tại hoặc không có quyền: {data.get('msg')}")
-    return data["data"]["group_detail"]
+    gd = data.get("data",{}).get("group_detail",{})
+    if not gd.get("group_id"): raise RuntimeError(f"Group '{group_name}' không tồn tại trên hệ thống.")
+    return gd
 
 def call_upload(group_detail, session, op_type, user_list, file_name="", retries=1):
     payload = {
@@ -194,7 +196,7 @@ def run_upload(cookie_token, sections, clear_before=True, log=print):
         log(f"  Upload thành công ✓")
         results.append({"tab":sec["tab"],"group_name":sec["group"],
                         "sheet_url":sec["sheet_url"],"total":len(sec["phones"]),
-                        "tnv":sec["tnv"],"user":sec["user"]})
+                        "tnv":sec["tnv"],"user":len(sec["phones"])-sec["tnv"]})
     log("\n✅ Hoàn tất!")
     return results
 
@@ -363,14 +365,8 @@ textarea{resize:vertical;min-height:64px;font-family:monospace;font-size:11px}
     <div id="logBox"></div>
     <div id="resBox"></div>
 
-    <div class="sched-box">
-      <h3>⏰ Tự động chạy lúc 9:00 sáng hàng ngày</h3>
-      <div class="toggle-row" style="margin-bottom:6px">
-        <input type="checkbox" id="schedEnabled" onchange="saveSchedule()">
-        <label for="schedEnabled" style="margin:0;font-size:13px">Bật lịch tự động</label>
-      </div>
-      <div style="font-size:12px;color:#78716c">Khi bật, dùng cookie + sections đang điền ở trên. Tool phải đang chạy lúc 9h.</div>
-      <div id="schedStatus" style="margin-top:6px;font-size:12px;color:#059669;font-weight:500"></div>
+    <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 14px;font-size:12px;color:#15803d;margin-top:4px">
+      ⏰ Section nào bật <b>Lịch 9h</b> sẽ tự chạy hàng ngày lúc 9:00 sáng (tool phải đang mở).
     </div>
   </div>
 
@@ -424,7 +420,8 @@ function save(){
       sheet_url:(document.getElementById('u'+i)||{}).value||'',
       tab_name:(document.getElementById('t'+i)||{}).value||'',
       group_name:(document.getElementById('g'+i)||{}).value||'',
-      clear_before:(document.getElementById('cb'+i)||{checked:true}).checked
+      clear_before:(document.getElementById('cb'+i)||{checked:true}).checked,
+      scheduled:(document.getElementById('sch'+i)||{checked:false}).checked
     });
   });
   localStorage.setItem(LS,JSON.stringify({cookie:document.getElementById('cookie').value,secs}));
@@ -435,14 +432,14 @@ async function restore(){
   const d=JSON.parse(raw);
   document.getElementById('cookie').value=d.cookie||'';
   for(const s of (d.secs||[])){
-    await addSec(s.sheet_url,s.tab_name,s.group_name,s.clear_before!==false);
+    await addSec(s.sheet_url,s.tab_name,s.group_name,s.clear_before!==false,!!s.scheduled);
   }
 }
 
 // ── Section ────────────────────────────────────────────────────────────────
 function ddmm(){const d=new Date();return String(d.getDate()).padStart(2,'0')+String(d.getMonth()+1).padStart(2,'0');}
 
-async function addSec(sheetUrl='',tabVal='',grpVal='',clearVal=true){
+async function addSec(sheetUrl='',tabVal='',grpVal='',clearVal=true,schedVal=false){
   secN++;const i=secN;
   const div=document.createElement('div');
   div.className='sec';div.id='sc'+i;
@@ -467,10 +464,16 @@ async function addSec(sheetUrl='',tabVal='',grpVal='',clearVal=true){
       </div>
     </div>
     <div class="sec-foot">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;margin:0;cursor:pointer">
-        <input type="checkbox" id="cb${i}" ${clearVal?'checked':''} onchange="save()" style="width:auto;padding:0">
-        Xóa danh sách cũ trước khi upload
-      </label>
+      <div style="display:flex;flex-direction:column;gap:5px">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;margin:0;cursor:pointer">
+          <input type="checkbox" id="cb${i}" ${clearVal?'checked':''} onchange="save();saveSchedule()" style="width:auto;padding:0">
+          Xóa danh sách cũ trước khi upload
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#92400e;margin:0;cursor:pointer">
+          <input type="checkbox" id="sch${i}" ${schedVal?'checked':''} onchange="save();saveSchedule()" style="width:auto;padding:0">
+          ⏰ Lịch 9h sáng hàng ngày
+        </label>
+      </div>
       <div style="display:flex;gap:6px;align-items:center">
         <span id="tabStatus${i}" style="font-size:11px;color:#999"></span>
         <button class="btn-sm" onclick="dlCSV(${i})">⬇ Download CSV</button>
@@ -574,21 +577,31 @@ async function dlCSV(i){
 
 // ── Schedule ───────────────────────────────────────────────────────────────
 async function saveSchedule(){
-  const enabled=document.getElementById('schedEnabled').checked;
   const cookie=document.getElementById('cookie').value.trim();
-  const sections=collectSecs();
+  const allSecs=collectSecs();
+  const scheduledSecs=allSecs.filter(s=>s.scheduled);
+  const enabled=scheduledSecs.length>0;
   await fetch('/schedule',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({enabled,cookie_token:cookie,sections})});
-  const st=document.getElementById('schedStatus');
-  st.textContent=enabled?'✅ Đang bật — chạy lúc 9:00 sáng hàng ngày ('+sections.length+' sections)':'⏸ Đã tắt';
+    body:JSON.stringify({enabled,cookie_token:cookie,sections:scheduledSecs})});
 }
 
 async function loadScheduleStatus(){
   try{
     const r=await fetch('/schedule');const d=await r.json();
-    document.getElementById('schedEnabled').checked=!!d.enabled;
-    const st=document.getElementById('schedStatus');
-    if(d.enabled) st.textContent='✅ Đang bật — chạy lúc 9:00 sáng ('+( d.sections||[]).length+' sections)';
+    // restore scheduled checkboxes
+    if(d.enabled && d.sections && d.sections.length){
+      d.sections.forEach(s=>{
+        document.querySelectorAll('.sec').forEach(c=>{
+          const i=c.id.slice(2);
+          const g=(document.getElementById('g'+i)||{}).value||'';
+          const t=(document.getElementById('t'+i)||{}).value||'';
+          if(g===s.group_name && t===s.tab_name){
+            const cb=document.getElementById('sch'+i);
+            if(cb) cb.checked=true;
+          }
+        });
+      });
+    }
   }catch(e){}
 }
 
@@ -729,7 +742,7 @@ def download_csv():
     try:
         sheet_id = parse_sheet_id(sheet_url)
         tnv, user = extract_phones(sheet_id, tab_name, log=lambda m: None)
-        phones = tnv + user
+        phones = list(dict.fromkeys(tnv + user))  # dedup
         csv_bytes = ("User ID\n" + "\n".join(phones)).encode("utf-8")
         fname = f"{tab_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         return Response(csv_bytes, mimetype="text/csv",
