@@ -80,6 +80,7 @@ def make_session(cookie_token):
         cookies[k.strip()] = v.strip()
     if not cookies: raise RuntimeError("Thiếu cookie token")
     csrf = cookies.get("csrfToken", cookies.get("csrftoken", ""))
+    if not csrf: raise RuntimeError("Không tìm thấy csrfToken trong cookie. Cookie đã hết hạn chưa?")
     s = requests.Session()
     s.cookies.update(cookies)
     s.headers.update({
@@ -90,16 +91,26 @@ def make_session(cookie_token):
     })
     return s
 
+def validate_session(session):
+    """Kiểm tra cookie còn hợp lệ không trước khi chạy."""
+    res = session.post(f"{BASE_URL}/tag-sys/api/v1/group/get_group_detail",
+        json={"region":"VN","group_name":"__ping__","business_type":1}, timeout=10)
+    if res.status_code == 403:
+        raise RuntimeError("Cookie đã hết hạn hoặc không có quyền. Vui lòng lấy cookie mới từ DevTools.")
+    # code != 0 là bình thường (group không tồn tại), miễn không 403
+
 def get_group_detail(group_name, session, log=print):
     log(f"  Lấy group '{group_name}'...")
     res = session.post(f"{BASE_URL}/tag-sys/api/v1/group/get_group_detail",
         json={"region":"VN","group_name":group_name,"business_type":1}, timeout=15)
+    if res.status_code == 403:
+        raise RuntimeError("Cookie hết hạn. Lấy cookie mới từ DevTools rồi thử lại.")
     res.raise_for_status()
     data = res.json()
-    if data.get("code") != 0: raise RuntimeError(f"get_group_detail lỗi: {data.get('msg')}")
+    if data.get("code") != 0: raise RuntimeError(f"Group '{group_name}' không tồn tại hoặc không có quyền: {data.get('msg')}")
     return data["data"]["group_detail"]
 
-def call_upload(group_detail, session, op_type, user_list, file_name=""):
+def call_upload(group_detail, session, op_type, user_list, file_name="", retries=1):
     payload = {
         "region":"VN","business_type":1,
         "entity_type": group_detail["entity_type"],
@@ -109,42 +120,79 @@ def call_upload(group_detail, session, op_type, user_list, file_name=""):
         "file_name": file_name, "operation_type": op_type,
         "user_list": user_list, "execute_type": 0, "expected_execute_time": 0,
     }
-    res = session.post(f"{BASE_URL}/tag-sys/api/v1/group/upload_list", json=payload, timeout=30)
-    res.raise_for_status()
-    data = res.json()
-    if data.get("code") != 0: raise RuntimeError(f"upload_list lỗi: {data.get('msg')}")
-    return data
+    for attempt in range(retries + 1):
+        res = session.post(f"{BASE_URL}/tag-sys/api/v1/group/upload_list", json=payload, timeout=30)
+        res.raise_for_status()
+        data = res.json()
+        if data.get("code") == 0: return data
+        msg = data.get("msg","")
+        if attempt < retries and "repeated" in msg.lower():
+            # Tên file trùng → đổi tên rồi retry
+            payload["file_name"] = f"upl_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.csv"
+            time.sleep(1); continue
+        raise RuntimeError(f"upload_list lỗi: {msg}")
 
 def run_upload(cookie_token, sections, clear_before=True, log=print):
     """sections = [{sheet_url, tab_name, group_name}, ...]"""
     if not sections: raise RuntimeError("Không có section nào")
+
     session = make_session(cookie_token)
-    results = []
-    for sec in sections:
+    log("🔑 Kiểm tra cookie...")
+    validate_session(session)
+    log("  Cookie hợp lệ ✓")
+
+    # Bước 1: Extract phones từ tất cả sections song song
+    log("\n📋 Đọc dữ liệu từ Google Sheet...")
+    section_data = [None] * len(sections)
+    errors = []
+
+    def fetch_sec(idx, sec):
         sheet_url  = sec.get("sheet_url","").strip()
         tab_name   = sec.get("tab_name","").strip()
         group_name = sec.get("group_name","").strip()
         if not sheet_url or not tab_name or not group_name:
-            log(f"[SKIP] Section thiếu thông tin"); continue
-        log(f"\n── {tab_name} → {group_name} ──")
-        sheet_id = parse_sheet_id(sheet_url)
-        tnv, user = extract_phones(sheet_id, tab_name, log=log)
-        phones = tnv + user
-        if not phones: log(f"  Không có SĐT — bỏ qua"); continue
-        gd = get_group_detail(group_name, session, log=log)
+            section_data[idx] = None; return
+        try:
+            log(f"\n── Section {idx+1}: {tab_name} → {group_name} ──")
+            sheet_id = parse_sheet_id(sheet_url)
+            tnv, user = extract_phones(sheet_id, tab_name, log=log)
+            phones = list(dict.fromkeys(tnv + user))  # dedup giữ thứ tự
+            section_data[idx] = {"tab":tab_name,"group":group_name,
+                                  "sheet_url":sheet_url,"phones":phones,
+                                  "tnv":len(tnv),"user":len(user)}
+        except Exception as e:
+            log(f"  ❌ {e}")
+            errors.append(str(e))
+            section_data[idx] = None
+
+    threads = [threading.Thread(target=fetch_sec, args=(i, s)) for i, s in enumerate(sections)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+
+    valid = [s for s in section_data if s and s["phones"]]
+    if not valid:
+        raise RuntimeError("Không có section nào có dữ liệu. " + (errors[0] if errors else ""))
+
+    # Bước 2: Upload tuần tự (tránh race condition với API)
+    log(f"\n🚀 Bắt đầu upload {len(valid)} section(s)...")
+    results = []
+    for sec in valid:
+        log(f"\n── {sec['tab']} → {sec['group']} ({len(sec['phones'])} số) ──")
+        gd = get_group_detail(sec["group"], session, log=log)
         if clear_before:
             log(f"  Xóa danh sách cũ...")
             call_upload(gd, session, 3, [], "")
-            log(f"  Chờ 8s..."); time.sleep(8)
+            log(f"  Chờ 10s để server xử lý...")
+            time.sleep(10)
             log(f"  Đã xóa ✓")
         fname = f"upl_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.csv"
-        user_list = [int(p) for p in phones]
-        log(f"  Upload {len(user_list)} số...")
+        user_list = [int(p) for p in sec["phones"]]
+        log(f"  Upload {len(user_list)} số (đã dedup)...")
         call_upload(gd, session, 1, user_list, fname)
         log(f"  Upload thành công ✓")
-        results.append({"tab":tab_name,"group_name":group_name,
-                        "sheet_url":sheet_url,"total":len(phones),
-                        "tnv":len(tnv),"user":len(user)})
+        results.append({"tab":sec["tab"],"group_name":sec["group"],
+                        "sheet_url":sec["sheet_url"],"total":len(sec["phones"]),
+                        "tnv":sec["tnv"],"user":sec["user"]})
     log("\n✅ Hoàn tất!")
     return results
 
@@ -282,6 +330,24 @@ textarea{resize:vertical;min-height:64px;font-family:monospace;font-size:11px}
 
   <!-- ── TAB UPLOAD ── -->
   <div id="pane-upload" class="pane on">
+    <details style="margin-bottom:16px;background:#f8faff;border:1px solid #dbeafe;border-radius:10px;padding:12px 14px">
+      <summary style="font-size:13px;font-weight:600;color:#1e40af;cursor:pointer">📖 Hướng dẫn sử dụng</summary>
+      <div style="margin-top:10px;font-size:12px;color:#374151;line-height:1.8">
+        <b>1. Lấy Cookie Token</b><br>
+        Mở <code>food-admin.shopee.vn</code> → F12 → Network → chọn bất kỳ request → Headers → tìm <code>Cookie</code> → copy toàn bộ giá trị.<br>
+        ⚠️ Cookie hết hạn sau ~8h. Nếu báo lỗi 403, lấy cookie mới.<br><br>
+        <b>2. Google Sheet</b><br>
+        Sheet phải được <b>share public</b> (Anyone with link can view).<br>
+        Cột SĐT phải có header chứa từ khoá: <code>điện thoại</code>, <code>phone</code>, <code>sdt</code>, <code>mobile</code>.<br>
+        Cột <code>Note</code> = <code>TNV</code> sẽ được tách riêng.<br><br>
+        <b>3. Format SĐT</b><br>
+        Tool tự chuyển <code>0912345678</code> → <code>84912345678</code>. SĐT trùng trong cùng 1 section sẽ bị loại bỏ tự động.<br><br>
+        <b>4. Xóa danh sách cũ</b><br>
+        Nếu tick, tool gọi API xóa toàn bộ group trước, chờ 10s rồi mới upload mới. Bỏ tick nếu muốn <b>thêm</b> vào list hiện có.<br><br>
+        <b>5. Lịch tự động 9h</b><br>
+        Bật toggle ở cuối trang. Tool phải đang chạy lúc 9:00 sáng thì mới trigger được.
+      </div>
+    </details>
     <div class="field">
       <label>Cookie Token <span class="req">*</span></label>
       <textarea id="cookie" placeholder="Paste cookie từ DevTools (F12 → Network → Request Headers → Cookie)" rows="3"></textarea>
