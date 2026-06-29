@@ -133,7 +133,7 @@ def call_upload(group_detail, session, op_type, user_list, file_name="", retries
         raise RuntimeError(f"upload_list lỗi: {msg}")
 
 def run_upload(cookie_token, sections, clear_before=True, log=print):
-    """sections = [{sheet_url, tab_name, group_name}, ...]"""
+    """sections = [{sheet_url, tab_name, group_name, clear_before?}, ...]"""
     if not sections: raise RuntimeError("Không có section nào")
 
     session = make_session(cookie_token)
@@ -157,9 +157,11 @@ def run_upload(cookie_token, sections, clear_before=True, log=print):
             sheet_id = parse_sheet_id(sheet_url)
             tnv, user = extract_phones(sheet_id, tab_name, log=log)
             phones = list(dict.fromkeys(tnv + user))  # dedup giữ thứ tự
+            sec_clear = sec.get("clear_before", clear_before)
             section_data[idx] = {"tab":tab_name,"group":group_name,
                                   "sheet_url":sheet_url,"phones":phones,
-                                  "tnv":len(tnv),"user":len(user)}
+                                  "tnv":len(tnv),"user":len(user),
+                                  "clear_before":sec_clear}
         except Exception as e:
             log(f"  ❌ {e}")
             errors.append(str(e))
@@ -179,7 +181,7 @@ def run_upload(cookie_token, sections, clear_before=True, log=print):
     for sec in valid:
         log(f"\n── {sec['tab']} → {sec['group']} ({len(sec['phones'])} số) ──")
         gd = get_group_detail(sec["group"], session, log=log)
-        if clear_before:
+        if sec.get("clear_before", clear_before):
             log(f"  Xóa danh sách cũ...")
             call_upload(gd, session, 3, [], "")
             log(f"  Chờ 10s để server xử lý...")
@@ -352,10 +354,6 @@ textarea{resize:vertical;min-height:64px;font-family:monospace;font-size:11px}
       <label>Cookie Token <span class="req">*</span></label>
       <textarea id="cookie" placeholder="Paste cookie từ DevTools (F12 → Network → Request Headers → Cookie)" rows="3"></textarea>
     </div>
-    <div class="toggle-row">
-      <input type="checkbox" id="clearBefore" checked>
-      <label for="clearBefore" style="margin:0">Xóa danh sách cũ trước khi upload</label>
-    </div>
     <div class="divider"></div>
 
     <div id="secList"></div>
@@ -411,8 +409,9 @@ function collectSecs(){
     const sheet_url=(document.getElementById('u'+i)||{}).value||'';
     const tab_name=(document.getElementById('t'+i)||{}).value||'';
     const group_name=(document.getElementById('g'+i)||{}).value||'';
+    const clear_before=(document.getElementById('cb'+i)||{checked:true}).checked;
     if(sheet_url.trim()&&tab_name.trim()&&group_name.trim())
-      r.push({sheet_url:sheet_url.trim(),tab_name:tab_name.trim(),group_name:group_name.trim()});
+      r.push({sheet_url:sheet_url.trim(),tab_name:tab_name.trim(),group_name:group_name.trim(),clear_before});
   });
   return r;
 }
@@ -424,30 +423,26 @@ function save(){
     secs.push({
       sheet_url:(document.getElementById('u'+i)||{}).value||'',
       tab_name:(document.getElementById('t'+i)||{}).value||'',
-      group_name:(document.getElementById('g'+i)||{}).value||''
+      group_name:(document.getElementById('g'+i)||{}).value||'',
+      clear_before:(document.getElementById('cb'+i)||{checked:true}).checked
     });
   });
-  localStorage.setItem(LS,JSON.stringify({
-    cookie:document.getElementById('cookie').value,
-    clear:document.getElementById('clearBefore').checked,
-    secs
-  }));
+  localStorage.setItem(LS,JSON.stringify({cookie:document.getElementById('cookie').value,secs}));
 }
 
 async function restore(){
   const raw=localStorage.getItem(LS);if(!raw)return;
   const d=JSON.parse(raw);
   document.getElementById('cookie').value=d.cookie||'';
-  document.getElementById('clearBefore').checked=d.clear!==false;
   for(const s of (d.secs||[])){
-    await addSec(s.sheet_url,s.tab_name,s.group_name);
+    await addSec(s.sheet_url,s.tab_name,s.group_name,s.clear_before!==false);
   }
 }
 
 // ── Section ────────────────────────────────────────────────────────────────
 function ddmm(){const d=new Date();return String(d.getDate()).padStart(2,'0')+String(d.getMonth()+1).padStart(2,'0');}
 
-async function addSec(sheetUrl='',tabVal='',grpVal=''){
+async function addSec(sheetUrl='',tabVal='',grpVal='',clearVal=true){
   secN++;const i=secN;
   const div=document.createElement('div');
   div.className='sec';div.id='sc'+i;
@@ -472,8 +467,14 @@ async function addSec(sheetUrl='',tabVal='',grpVal=''){
       </div>
     </div>
     <div class="sec-foot">
-      <span id="tabStatus${i}" style="font-size:11px;color:#999"></span>
-      <button class="btn-sm" onclick="dlCSV(${i})">⬇ Download CSV</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555;margin:0;cursor:pointer">
+        <input type="checkbox" id="cb${i}" ${clearVal?'checked':''} onchange="save()" style="width:auto;padding:0">
+        Xóa danh sách cũ trước khi upload
+      </label>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span id="tabStatus${i}" style="font-size:11px;color:#999"></span>
+        <button class="btn-sm" onclick="dlCSV(${i})">⬇ Download CSV</button>
+      </div>
     </div>`;
   document.getElementById('secList').appendChild(div);
   if(sheetUrl){
@@ -528,7 +529,7 @@ async function doUpload(){
   btn.disabled=true;btn.innerHTML='<span class="spin"></span>Đang xử lý...';
   try{
     const res=await fetch('/upload',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({cookie_token:cookie,sections,clear_before_upload:clear})});
+      body:JSON.stringify({cookie_token:cookie,sections})});
     const reader=res.body.getReader();const dec=new TextDecoder();let buf='';
     while(true){
       const{done,value}=await reader.read();if(done)break;
@@ -576,9 +577,8 @@ async function saveSchedule(){
   const enabled=document.getElementById('schedEnabled').checked;
   const cookie=document.getElementById('cookie').value.trim();
   const sections=collectSecs();
-  const clear_before=document.getElementById('clearBefore').checked;
   await fetch('/schedule',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({enabled,cookie_token:cookie,sections,clear_before})});
+    body:JSON.stringify({enabled,cookie_token:cookie,sections})});
   const st=document.getElementById('schedStatus');
   st.textContent=enabled?'✅ Đang bật — chạy lúc 9:00 sáng hàng ngày ('+sections.length+' sections)':'⏸ Đã tắt';
 }
@@ -658,7 +658,6 @@ async function loadHistory(){
 
 // ── Init ───────────────────────────────────────────────────────────────────
 document.getElementById('cookie').addEventListener('input',save);
-document.getElementById('clearBefore').addEventListener('change',save);
 
 restore().then(()=>{
   if(!document.querySelectorAll('.sec').length) addSec();
@@ -687,7 +686,6 @@ def upload():
     data         = request.get_json()
     cookie_token = data.get("cookie_token","").strip()
     sections     = data.get("sections",[])
-    clear_before = data.get("clear_before_upload", True)
 
     log_queue = queue.Queue()
 
@@ -696,7 +694,7 @@ def upload():
         def log(msg): logs.append(msg); log_queue.put(("log", msg))
         started = datetime.now().isoformat()
         try:
-            results = run_upload(cookie_token, sections, clear_before, log=log)
+            results = run_upload(cookie_token, sections, log=log)
             log_queue.put(("done", results))
             append_history({"id":uuid.uuid4().hex[:8],"type":"manual","status":"success",
                             "started":started,"finished":datetime.now().isoformat(),
